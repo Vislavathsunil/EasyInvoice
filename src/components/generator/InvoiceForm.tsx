@@ -1,11 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useFormContext } from 'react-hook-form';
-import { useInvoiceContext } from '../../context/InvoiceContext';
 import { useCustomers } from '../../context/CustomerContext';
-import { useAuth } from '../../context/AuthContext';
-import { isFirebaseConfigured, storage } from '../../config/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { saveLocalLogo, getLocalLogo, deleteLocalLogo } from '../../utils/logoStorage';
 import type { InvoiceData } from '../../types/invoice';
 import { Input } from '../ui/Input';
 import { Label } from '../ui/Label';
@@ -14,13 +9,11 @@ import { InvoiceItemsTable } from './InvoiceItemsTable';
 import { calculateSubtotal, calculateTax, calculateTotal } from '../../utils/calculations';
 import { formatCurrency } from '../../utils/formatters';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
-import { Upload, Trash2, Loader2, RefreshCw, Users, ChevronDown } from 'lucide-react';
+import { Users, ChevronDown } from 'lucide-react';
 
 export const InvoiceForm: React.FC = () => {
   const { register, setValue, watch } = useFormContext<InvoiceData>();
-  const { companyProfile, updateCompanyProfile } = useInvoiceContext();
   const { customers } = useCustomers();
-  const { user } = useAuth();
 
   const items = watch('items') || [];
   const currency = watch('currency') || 'USD';
@@ -38,132 +31,8 @@ export const InvoiceForm: React.FC = () => {
   const tax = calculateTax(subtotal, isNaN(taxRate) ? 0 : taxRate);
   const total = calculateTotal(subtotal, tax);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const logoUrl = watch('company.logoUrl');
-  const [resolvedLogo, setResolvedLogo] = useState<string>('');
-  const [isUploading, setIsUploading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
-
-  // Resolve logo URL asynchronously
-  useEffect(() => {
-    if (!logoUrl) {
-      const timer = setTimeout(() => setResolvedLogo(''), 0);
-      return () => clearTimeout(timer);
-    }
-
-    if (logoUrl.startsWith('local:')) {
-      let active = true;
-      getLocalLogo(logoUrl).then(url => {
-        if (active) {
-          setResolvedLogo(url || '');
-        }
-      }).catch(err => {
-        console.error("Failed to load local logo", err);
-      });
-      return () => {
-        active = false;
-      };
-    } else {
-      const timer = setTimeout(() => setResolvedLogo(logoUrl), 0);
-      return () => clearTimeout(timer);
-    }
-  }, [logoUrl]);
-
-  // Sync profile logo to form if form is empty
-  const companyProfileLogo = companyProfile?.logoUrl;
-  useEffect(() => {
-    if (companyProfileLogo && !logoUrl) {
-      setValue('company.logoUrl', companyProfileLogo);
-    }
-  }, [companyProfileLogo, logoUrl, setValue]);
-
-  const handleFile = async (file: File) => {
-    setErrorMsg('');
-
-    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      setErrorMsg('Unsupported format. Support: PNG, JPG, JPEG, SVG, WEBP.');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMsg('File exceeds 5 MB size limit.');
-      return;
-    }
-
-    setIsUploading(true);
-
-    try {
-      let finalUrl = '';
-      if (isFirebaseConfigured && user) {
-        const fileExtension = file.name.split('.').pop() || 'png';
-        const logoRef = ref(storage, `users/${user.uid}/logos/logo_${Date.now()}.${fileExtension}`);
-        const snapshot = await uploadBytes(logoRef, file);
-        finalUrl = await getDownloadURL(snapshot.ref);
-      } else {
-        const localKey = `local:logo_${user?.uid || 'anonymous'}_${Date.now()}`;
-        await saveLocalLogo(localKey, file);
-        finalUrl = localKey;
-      }
-
-      setValue('company.logoUrl', finalUrl);
-
-      const currentCompany = watch('company');
-      await updateCompanyProfile({
-        name: currentCompany?.name || '',
-        address: currentCompany?.address || '',
-        email: currentCompany?.email || '',
-        phone: currentCompany?.phone || '',
-        taxId: currentCompany?.taxId || '',
-        logoUrl: finalUrl
-      });
-    } catch (err) {
-      const error = err as Error;
-      console.error("Logo upload error:", error);
-      setErrorMsg('Upload failed. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleRemove = async () => {
-    const prevLogoUrl = logoUrl;
-    setValue('company.logoUrl', '');
-    const currentCompany = watch('company');
-    await updateCompanyProfile({
-      name: currentCompany?.name || '',
-      address: currentCompany?.address || '',
-      email: currentCompany?.email || '',
-      phone: currentCompany?.phone || '',
-      taxId: currentCompany?.taxId || '',
-      logoUrl: ''
-    });
-    if (prevLogoUrl && prevLogoUrl.startsWith('local:')) {
-      await deleteLocalLogo(prevLogoUrl);
-    }
-    setResolvedLogo('');
-  };
 
   const handleSelectClient = (customer: typeof customers[0]) => {
     setValue('client.name', customer.name);
